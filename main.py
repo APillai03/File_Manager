@@ -54,5 +54,30 @@ def main():
         b1.grid(row=0, column=0, padx=5, pady=5, sticky='ew')
 
     window.mainloop()
+def main2():
+    def yes(window):
+        print('y')
+        window.destroy()
+    def no(window):
+        print('n')
+        window.destroy()
+    filename = sys.argv[1]
+    window = tk.Tk()
+    window.title(f'Dialog')
 
-main()
+    window.rowconfigure(0, minsize=100,weight=1)
+    window.columnconfigure(1, minsize=100,weight=1)
+    l1 = tk.Label(text=f"Do you want to delete {filename}")
+    l1.grid(row=0,column=1)
+    b1 = tk.Button(window,text='Yes',width=10,command=lambda: yes(window))
+    b1.grid(row=1,column=0,padx=5,pady=5)
+    b2 = tk.Button(window,text='No',width=10,command=lambda: no(window))
+    b2.grid(row=1,column=2,padx=5)
+    window.mainloop()
+
+
+
+if(sys.argv[2]=='1' or sys.argv[2]=='2'):
+    main()
+if(sys.argv[2]=='3'):
+    main2()

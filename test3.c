@@ -8,8 +8,6 @@
 #include <stdbool.h>
 
 
-
-
 #define MAX_FILES 10
 #define MAX_THREADS 10
 
@@ -24,13 +22,99 @@ typedef struct
 FileResource files[MAX_FILES];
 pthread_t readers[MAX_FILES][MAX_THREADS];
 pthread_t writers[MAX_FILES][MAX_THREADS];
+pthread_t deleters[MAX_FILES][MAX_THREADS];
+pthread_t renamers[MAX_FILES][MAX_THREADS];
 
-// Array to keep track of reader and writer thread indices for each file
+
 int rptr[MAX_FILES] = { -1 };
 int wptr[MAX_FILES] = { -1 };
+int dptr[MAX_FILES] = { -1 };
+int reptr[MAX_FILES] = { -1 };
 
-// Reader thread function
-void *reader(void *arg) {
+void *renamer(void *arg) 
+{
+    int file_index = *(int *)arg;
+    FileResource *file = &files[file_index];
+
+    
+    sem_wait(&file->rw_mutex);
+
+    char new_filename[50];
+    snprintf(new_filename, sizeof(new_filename), "renamed_file%d.txt", file_index + 1);
+
+
+    if (rename(file->filename, new_filename) == 0) 
+    {
+        printf("Renamer %ld has renamed the file %s to %s.\n", pthread_self(), file->filename, new_filename);
+        snprintf(file->filename, sizeof(file->filename), "%s", new_filename); 
+    } 
+    else 
+    {
+        perror("Error renaming file");
+    }
+
+
+    sem_post(&file->rw_mutex);
+
+    return NULL;
+}
+
+void *deleter(void *arg)
+{
+    int file_index = *(int *)arg;
+    FileResource *file = &files[file_index];
+
+    
+    sem_wait(&file->rw_mutex);
+
+    char command[256];
+    sprintf(command, "python3 main.py file%d.txt 3", file_index+1);
+    //system(command);
+    FILE *pipe = popen(command, "r");
+    if (pipe == NULL) 
+    {
+        perror("popen failed");
+        return NULL;
+    }
+
+
+
+    char buffer[128];
+    memset(buffer,0,128);
+
+    while (fgets(buffer, sizeof(buffer), pipe) != NULL) 
+    {
+        printf("Output from Python: %s", buffer);
+        buffer[strcspn(buffer, "\n")] = '\0';
+    }
+
+    pclose(pipe);
+
+
+    if(strcmp(buffer,"y")==0)
+    {
+
+        if (unlink(file->filename) == 0) 
+        {
+            printf("Deleter %ld has deleted the file %s.\n", pthread_self(), file->filename);
+        }    
+        else 
+        {
+            perror("Error deleting file");
+        }
+    }
+    else
+    {
+        printf("shit");
+    } 
+    
+    sem_post(&file->rw_mutex);
+    sem_post(&file->mutex);
+
+    return NULL;
+}
+void *reader(void *arg) 
+{
     int file_index = *(int *)arg;
     FileResource *file = &files[file_index];
 
@@ -48,8 +132,8 @@ void *reader(void *arg) {
     }
 
     printf("Reader %ld is reading the file %s:\n", pthread_self(), file->filename);
-    char buffer[256];
-    ssize_t bytes;
+    //char buffer[256];
+    //ssize_t bytes;
     //while ((bytes = read(fd, buffer, sizeof(buffer) - 1)) > 0) {
     ///    buffer[bytes] = '\0';
         //printf("%s", buffer);
@@ -74,7 +158,7 @@ void *reader(void *arg) {
     return NULL;
 }
 
-// Writer thread function
+
 void *writer(void *arg) 
 {
     int file_index = *(int *)arg;
@@ -106,7 +190,7 @@ void *writer(void *arg)
 
 int main() 
 {
-    // Initialize file resources
+
     for (int i = 0; i < MAX_FILES; i++) 
     {
         snprintf(files[i].filename, sizeof(files[i].filename), "file%d.txt", i + 1);
@@ -139,8 +223,12 @@ int main()
                 pthread_create(&writers[file_index][++wptr[file_index]], NULL, writer, &file_index);
                 break;
             case 2:
-                
+                pthread_create(&deleters[file_index][++dptr[file_index]], NULL, deleter, &file_index);
+                break;
             case 3:
+                pthread_create(&renamers[file_index][++reptr[file_index]], NULL, renamer, &file_index);
+                break;
+            case 4:
                 file_manager = false;
                 break;
             default:
@@ -157,6 +245,10 @@ int main()
         for (int j = 0; j <= wptr[i]; j++) 
         {
             pthread_join(writers[i][j], NULL);
+        }
+        for (int j = 0; j <= wptr[i]; j++) 
+        {
+            pthread_join(deleters[i][j], NULL);
         }
     }
 

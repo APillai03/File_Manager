@@ -1,5 +1,3 @@
-This is file 2 speaking .This is a line written by writer.
-I can write here since there is no lock
-This is a line written by writer.
-This is a line written by writer.
-This is a line written by writer.
+New file 2 created for testing purposes.
+New line check
+tab	space check
