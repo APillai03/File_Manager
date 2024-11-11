@@ -1,0 +1,5 @@
+This is file 2 speaking .This is a line written by writer.
+I can write here since there is no lock
+This is a line written by writer.
+This is a line written by writer.
+This is a line written by writer.
