@@ -18,5 +18,15 @@ Follow these steps to set up and run the project:
 
 1. **Clone the Repository**
    ```bash
-   git clone <repository-url>
-   cd <repository-directory>
+   git clone https://github.com/APillai03/File_Manager
+   cd File_Manager```
+
+2. **Compile the Server**
+    ```bash
+   gcc server.c -o server
+   ./server
+   ```
+3. **Run the Client (another terminal)**
+    ```bash
+    python3 client.py
+   ```
