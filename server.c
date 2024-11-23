@@ -6,7 +6,17 @@
 #include <semaphore.h>
 #include <string.h>
 #include <stdbool.h>
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/stat.h>
+#include <time.h>
 
+
+
+
+#define PORT 8080
 
 #define MAX_FILES 10
 #define MAX_THREADS 10
@@ -34,6 +44,55 @@ int wptr[MAX_FILES] = { -1 };
 int dptr[MAX_FILES] = { -1 };
 int reptr[MAX_FILES] = { -1 };
 
+sem_t log_lock;
+void log_message(const char *operation, const char *filename) 
+{
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+
+    sem_wait(&log_lock); 
+
+    FILE *log_file = fopen("log.txt", "a");
+
+    if (log_file == NULL) 
+    {
+        perror("Error opening logfile");
+        sem_post(&log_lock); 
+        return;
+    }
+
+    fprintf(log_file, "[%ld.%06ld] %s from file: %s\n",tv.tv_sec, tv.tv_usec, operation, filename);
+    fclose(log_file);
+
+    sem_post(&log_lock); 
+}
+
+
+void display_file_metadata(const char *filename) 
+{
+    struct stat file_stat;
+    
+    if (stat(filename, &file_stat) == -1) 
+    {
+        perror("Error retrieving file metadata");
+        return;
+    }
+    
+    printf("Metadata for file: %s\n", filename);
+    printf("Size: %ld bytes\n", file_stat.st_size);
+    printf("Permissions: ");
+    printf((file_stat.st_mode & S_IRUSR) ? "r" : "-");
+    printf((file_stat.st_mode & S_IWUSR) ? "w" : "-");
+    printf((file_stat.st_mode & S_IXUSR) ? "x" : "-");
+    printf("\n");
+
+    char creation_time[26];
+    ctime_r(&file_stat.st_ctime, creation_time);
+    creation_time[strcspn(creation_time, "\n")] = '\0';
+    printf("Creation time: %s\n", creation_time);
+    
+}
+
 void *renamer(void *arg) 
 {
     int file_index = *(int *)arg;
@@ -56,7 +115,7 @@ void *renamer(void *arg)
         perror("Error renaming file");
     }
 
-
+    log_message("Rename", file->filename);
     sem_post(&file->rw_mutex);
 
     return NULL;
@@ -106,7 +165,7 @@ void *deleter(void *arg)
             perror("Error deleting file");
         }
     } 
-    
+    log_message("Delete", file->filename);
     sem_post(&file->rw_mutex);
     sem_post(&file->mutex);
 
@@ -132,21 +191,16 @@ void *reader(void *arg)
     }
 
     printf("Reader %ld is reading the file %s:\n", pthread_self(), file->filename);
-    //char buffer[256];
-    //ssize_t bytes;
-    //while ((bytes = read(fd, buffer, sizeof(buffer) - 1)) > 0) {
-    ///    buffer[bytes] = '\0';
-        //printf("%s", buffer);
-    //}
-    printf("\n");
 
-    //system("python3 main.py");
+    printf("\n");
 
     char command[256];
     sprintf(command, "python3 main.py file%d.txt 2", file_index+1);
     system(command);
 
     close(fd);
+    log_message("Read", file->filename);
+
 
     sem_wait(&file->mutex);
     file->reader_count--;
@@ -181,16 +235,51 @@ void *writer(void *arg)
     sprintf(command, "python3 main.py file%d.txt 1", file_index+1);
     system(command);
 
- 
+    
     close(fd);
+    log_message("Write", file->filename);
 
     sem_post(&file->rw_mutex);
 
     return NULL;
 }
 
+
 int main() 
 {
+
+
+    sem_init(&log_lock, 0, 1); 
+
+    int server_fd;
+
+    if((server_fd = socket(AF_INET,SOCK_STREAM,0))<0)
+    {
+        perror("ERROR");
+        exit(EXIT_FAILURE);
+    }
+
+    struct sockaddr_in address = {0};
+    
+    address.sin_family = AF_INET;
+    address.sin_port = htons(PORT);
+    address.sin_addr.s_addr = INADDR_ANY;
+
+    if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) == -1) 
+    {
+        perror("Bind failed");
+        close(server_fd);
+        exit(EXIT_FAILURE);
+    }
+
+    if (listen(server_fd, 5) == -1) 
+    {
+        perror("Listen failed");
+        close(server_fd);
+        exit(EXIT_FAILURE);
+    }
+    printf("Server is listening on port %d...\n", PORT);
+
 
     for (int i = 0; i < MAX_FILES; i++) 
     {
@@ -200,20 +289,23 @@ int main()
         files[i].reader_count = 0;
     }
 
-    int file_index;
-    bool file_manager = true;
-    int choice;
-
+    int file_manager=1;
     while (file_manager) 
     {
-        printf("Enter the file index (0 to %d) and choice (0: Reader, 1: Writer, 2: Exit):\n", MAX_FILES - 1);
-        scanf("%d %d", &file_index, &choice);
-
-        if (file_index < 0 || file_index >= MAX_FILES) 
+        int client_fd = accept(server_fd, NULL, NULL);
+        if (client_fd == -1) 
         {
-            printf("Invalid file index.\n");
+            perror("Accept failed");
             continue;
         }
+
+        char buffer[256] = {0};
+        read(client_fd, buffer, sizeof(buffer));
+        printf("Received request: %s\n", buffer);
+
+        int file_index, choice;
+        sscanf(buffer, "%d %d", &file_index, &choice);
+
 
         switch (choice) 
         {
@@ -230,11 +322,14 @@ int main()
                 pthread_create(&renamers[file_index][++reptr[file_index]], NULL, renamer, &file_index);
                 break;
             case 4:
-                file_manager = false;
+                display_file_metadata(files[file_index].filename);
+            case 5:
+                file_manager=0;
                 break;
             default:
                 printf("Invalid choice.\n");
         }
+        close(client_fd);
     }
 
     for (int i = 0; i < MAX_FILES; i++) 
@@ -258,6 +353,6 @@ int main()
         sem_destroy(&files[i].rw_mutex);
         sem_destroy(&files[i].mutex);
     }
-
+    close(server_fd);
     return 0;
 }
