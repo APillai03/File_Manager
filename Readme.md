@@ -19,7 +19,8 @@ Follow these steps to set up and run the project:
 1. **Clone the Repository**
    ```bash
    git clone https://github.com/APillai03/File_Manager
-   cd File_Manager```
+   cd File_Manager
+   ```
 
 2. **Compile the Server**
     ```bash
